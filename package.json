@@ -15,6 +15,7 @@
     "node-fetch": "^2.6.7",
     "node-wit": "^6.6.0",
     "peerjs": "^1.5.2",
+    "puppeteer-core": "^24.43.1",
     "socket.io": "^4.8.0",
     "webxr-polyfill": "^2.0.3",
     "ws": "^7.4.6",
