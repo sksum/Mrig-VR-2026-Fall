@@ -1,0 +1,14 @@
+{
+  "name": "sprites-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server exposing the desk-sprites scene (characters, animations, speech, movement, desk depth/obstacles) to the pi storytelling agent",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "ws": "^7.4.6"
+  }
+}

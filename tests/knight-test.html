@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Knight Port Test</title>
+<style>
+  body { background:#232228; color:#eee6cf; font-family:monospace; padding:16px; }
+  canvas { image-rendering:pixelated; border:2px solid #555; background:#3a3840; display:block; }
+  .row { display:flex; gap:24px; align-items:flex-start; }
+  .col { text-align:center; }
+  button { font:inherit; margin:2px; background:#2d2c33; color:#eee6cf; border:2px solid #0f0e12; padding:4px 8px; cursor:pointer; }
+  button.on { background:#c9a24a; color:#1b1a1f; font-weight:bold; }
+</style>
+</head>
+<body>
+<h3>Knight port test — both palettes, all 16 anims, flip</h3>
+<div class="row">
+  <div class="col"><canvas id="a" width="432" height="432" style="width:432px"></canvas><div id="pa"></div></div>
+  <div class="col"><canvas id="b" width="432" height="432" style="width:432px"></canvas><div id="pb"></div></div>
+  <div>
+    <div id="btns"></div>
+    <br><button id="flip">Flip (F)</button><button id="cycle">Cycle all</button>
+    <pre id="info"></pre>
+  </div>
+</div>
+<script type="module">
+  import { createKnight, ANIMS, PALETTES } from '../js/scenes/sprites/knight.js';
+
+  // copy the knight texture canvases onto the visible test canvases each frame
+  const ka = createKnight('steel'), kb = createKnight('copper');
+  const ca = document.getElementById('a').getContext('2d');
+  const cb = document.getElementById('b').getContext('2d');
+  ca.imageSmoothingEnabled = cb.imageSmoothingEnabled = false;
+
+  let cur = 'idle', flip = false, cycling = false, lastSwitch = 0;
+  const info = document.getElementById('info');
+
+  const btns = document.getElementById('btns');
+  Object.keys(ANIMS).forEach(k => {
+    const b = document.createElement('button');
+    b.textContent = k; b.dataset.k = k;
+    b.onclick = () => { cur = k; cycling = false; mark(); };
+    btns.appendChild(b);
+  });
+  const mark = () => [...btns.children].forEach(b => b.classList.toggle('on', b.dataset.k === cur));
+  mark();
+
+  document.getElementById('flip').onclick = () => flip = !flip;
+  document.getElementById('cycle').onclick = () => { cycling = !cycling; lastSwitch = 0; };
+
+  addEventListener('keydown', e => { if (e.key === 'f') flip = !flip; });
+
+  document.getElementById('pa').textContent = PALETTES.steel.name;
+  document.getElementById('pb').textContent = PALETTES.copper.name;
+
+  const names = Object.keys(ANIMS);
+  let t0 = performance.now(), t = 0;
+
+  function frame(now) {
+    const dt = Math.min(.1, (now - t0) / 1000); t0 = now; t += dt;
+    if (cycling && t - lastSwitch > 3) { lastSwitch = t; cur = names[(names.indexOf(cur) + 1) % names.length]; mark(); }
+    ka.drawFrame(cur, t, { flip });
+    kb.drawFrame(cur, t, { flip });
+    ca.clearRect(0,0,432,432); ca.drawImage(ka.canvas, 0, 0);
+    cb.clearRect(0,0,432,432); cb.drawImage(kb.canvas, 0, 0);
+    const h = ka.headPos();
+    info.textContent = `anim=${cur} period=${ANIMS[cur].period}\nflip=${flip}\nhead=(${h.x.toFixed(0)}, ${h.y.toFixed(0)})`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>

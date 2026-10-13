@@ -133,7 +133,7 @@ export function init() {
   window.EventBus.subscribe("realsense", (json) => {
     if (!window.pointCloudData) window.pointCloudData = {};
     // window.pointCloudData[json["username"]] = json["frame"];
-    window.pointCloudData["Testuser1"] = data;
+    window.pointCloudData["Testuser1"] = json;
   });
 
   window.EventBus.subscribe("mute", (json) => {
@@ -334,16 +334,30 @@ export function init() {
     //   window.objects[key].matrix = dirtyObjects[key]["state"]["matrix"];
     // });
 
-    let dirtyObject = json["state"];
-    // { type: objectType, matrix: objectMatrix, objid: objid }
-    if (dirtyObject["type"] in window.models) {
-      if (!(dirtyObject["objid"] in window.objects))
-        window.objects[dirtyObject["objid"]] = new SyncObject(
-          dirtyObject["objid"],
-          dirtyObject["type"]
-        );
-      window.objects[dirtyObject["objid"]].fromJson(dirtyObject);
-    }
+    // The server broadcasts dirty objects as {type:"object", data:{id:{state}}};
+    // direct per-message updates arrive as {type:"object", id, state}.
+    // Normalize both, and ignore payloads that have no state.
+    const dirty = json["data"]
+      ? json["data"]
+      : json["state"] && json["id"] !== undefined
+      ? { [json["id"]]: { state: json["state"] } }
+      : null;
+    if (!dirty) return;
+
+    Object.keys(dirty).forEach(function (key) {
+      const o = dirty[key];
+      if (!o || !o["state"]) return;
+      const dirtyObject = o["state"];
+      // { type: objectType, matrix: objectMatrix, objid: objid }
+      if (dirtyObject["type"] in window.models) {
+        if (!(dirtyObject["objid"] in window.objects))
+          window.objects[dirtyObject["objid"]] = new SyncObject(
+            dirtyObject["objid"],
+            dirtyObject["type"]
+          );
+        window.objects[dirtyObject["objid"]].fromJson(dirtyObject);
+      }
+    });
   });
 
   window.EventBus.subscribe("demo", (json) => {

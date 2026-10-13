@@ -51,6 +51,9 @@ const serverConfig =
 const handleRequest = function (request, response) {
     // Render the single client html file for any request the HTTP server receives
     // console.log('request received: ' + request.url);
+    // strip cache-busting query strings (e.g. scenes loaded as "./sprites.js?modid=...")
+    // before resolving the path on disk, otherwise readFileSync throws ENOENT
+    request.url = request.url.split("?")[0];
     if (request.url.endsWith(".png")) {
         if (!request.url.startsWith(".")) {
             request.url = "." + request.url;
@@ -224,6 +227,27 @@ function leave(index, username) {
     send("*", index, response);
     websocketMap.get(index).close();
     websocketMap.delete(index);
+
+    // sketch-protocol compatibility (see wss.on("connection") below)
+    const si = sketchClients.indexOf(index);
+    if (si >= 0) sketchClients.splice(si, 1);
+    broadcastSketchClients();
+}
+
+// ---------------------------------------------------------------------------
+// Sketch-protocol compatibility:
+// pages served from this port load server/client.js, whose socket connects
+// back to location.host (i.e. THIS server, not the sketch server on :2026).
+// server/client.js waits for {global:"clients", value:[...]} before it assigns
+// window.clientID; without it, clientID stays undefined and the input/render
+// loop (inputEvents -> clientState) throws a ReferenceError every frame,
+// which leaves the page blank.
+let sketchClients = [];
+function broadcastSketchClients() {
+    const data = JSON.stringify({ global: "clients", value: sketchClients });
+    websocketMap.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) client.send(data);
+    });
 }
 
 wss.on("connection", function (ws, req) {
@@ -248,6 +272,11 @@ wss.on("connection", function (ws, req) {
     // TODO: change id to username or something
     send("*", -1, { type: "join", id: ws.index });
 
+    // sketch-protocol compatibility: announce the clients list so that
+    // server/client.js can assign window.clientID (see leave() for removal)
+    sketchClients.push(ws.index);
+    broadcastSketchClients();
+
     ws.on("message", function (data) {
         // Broadcast any received message to all clients
         //wss.broadcast(message);
@@ -271,6 +300,9 @@ wss.on("connection", function (ws, req) {
                 const id = json["id"];
                 const state = json["state"];
 
+                // tolerate updates for ids we don't know (e.g. a bridge that
+                // survived a relay restart) instead of crashing on undefined
+                if (!datastore.exists(id)) datastore.add(id);
                 datastore.setObjectData(id, state);
                 break;
             }
@@ -380,6 +412,13 @@ wss.on("connection", function (ws, req) {
             case "3d":
                 {
                     console.log("recv 3d data");
+                }
+                break;
+            // browser-side log relay: scene modules send {type:"log", tag, msg}
+            // so headset-side behavior shows up in this terminal / logs/
+            case "log":
+                {
+                    console.log(`[browser:${json["tag"] || "?"}] ${json["msg"] || ""}`);
                 }
                 break;
             default:

@@ -370,10 +370,14 @@ export function initXR() {
     //     window.wsclient.connect("eye.3dvar.com", window.wsport);
     // }
     // setToioSync();
-    setRobotCarSync();
-    // setAvatarSync();
-    setObjSync();
-    setSharedObjSync();
+    // these sync loops broadcast through corelink; skip them when the corelink
+    // client library is not loaded (their intervals would throw every tick)
+    if (typeof corelink !== 'undefined') {
+        setRobotCarSync();
+        // setAvatarSync();
+        setObjSync();
+        setSharedObjSync();
+    }
     // setPythonSync();
     // setSketchchatSync();
     if(window.sendRecordedViveData) setRecordedViveSync();

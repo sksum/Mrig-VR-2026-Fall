@@ -1,4 +1,39 @@
-killall -q Python
-killall -q node
-node server/main.js 2026 2026 http &
-python python/screen_anchor_server.py &
+#!/bin/bash
+#
+# startserver — one-command launcher for the desk-sprites stack.
+#
+# Launches (each tee'd to logs/<name>.log):
+#   1. server/main.js            sketch server (port 2026, as before)
+#   2. python screen anchor      aruco calibration server (port 5050, as before)
+#   3. server.js                 ws relay + DataStore (port 8447) - sprite cmds, deskMap, log relay
+#   4. mcp-server/server.js      MCP server for the pi agent (port 3001)
+#   5. desk service              RealSense desk mapper (add DESK_ARGS="--simulate" for no-camera testing)
+#
+# Monitor with:  tail -f logs/*.log
+
+cd "$(dirname "$0")"
+mkdir -p logs
+
+killall -q Python 2>/dev/null
+killall -q node 2>/dev/null
+sleep 1
+
+# 1. sketch server (unchanged from the original startserver)
+node server/main.js 2026 2026 http > >(tee logs/sketch-server.log) 2>&1 &
+
+# 2. screen anchor server
+python3 python/screen_anchor_server.py > >(tee logs/screen-anchor.log) 2>&1 &
+
+# 3. ws relay / DataStore (needs key.pem + cert.pem in repo root for -env local)
+node server.js -env local > >(tee logs/ws-relay.log) 2>&1 &
+
+# 4. MCP server for the pi agent
+(cd mcp-server && exec node server.js) > >(tee logs/mcp-server.log) 2>&1 &
+
+# 5. RealSense desk service (DESK_ARGS="--simulate" to test without a camera,
+#    DESK_ARGS="--calibrate" for one-shot calibration output)
+python3 python/realsense_desk_service.py ${DESK_ARGS:-} > >(tee logs/desk-service.log) 2>&1 &
+
+echo "all services started - logs in ./logs/"
+echo "  sprites scene : open sprites.html (headset browser)"
+echo "  MCP endpoint  : http://$(ipconfig getifaddr en0 2>/dev/null || echo '<lan-ip>')":3001/mcp

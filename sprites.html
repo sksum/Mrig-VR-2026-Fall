@@ -1,0 +1,64 @@
+<script>window.onlyScene = 'sprites'</script>
+<title>VR-2026-Sprites</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
+<link rel="icon" type="image/png" sizes="96x96" href="favicon-96x96.png" />
+<link rel="stylesheet" href="css/common.css" />
+<script src='server/client.js'></script>
+<script src="https://cdn.jsdelivr.net/npm/resonance-audio/build/resonance-audio.min.js"></script>
+<script src="https://www.gstatic.com/external_hosted/omnitone/build/omnitone.min.js"></script>
+<script src="js/buffer-browser.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="js/util/peerjs.min.js"></script>
+<body>
+  <div id=videoElement></div>
+  <canvas id=anidrawCanvas width=1024 height=960 style="position:absolute;left:-2000px;"></canvas>
+  <header id=header>
+    <div id="connection-status">Initializing p2p connection ...</div>
+    <div id="active-demo">No demo selected</div>
+  </header>
+  <div id="audios"><audio id="local_webrtc" autoplay></audio></div>
+  <script type="module" src="/js/main.js"></script>
+  <script>
+    // ---- boot log relay: page-level errors + lifecycle -> server terminal ----
+    (function bootRelay() {
+      let ws = null;
+      const queue = [];
+      const flush = () => { while (queue.length) {
+         const m = queue.shift();
+         try { ws.send(JSON.stringify(m)); } catch (e) { queue.unshift(m); break; }
+      } };
+      const send = (tag, msg) => {
+         queue.push({ type: 'log', tag: tag, msg: String(msg).slice(0, 300), ts: Date.now() });
+         try {
+            if (!ws || ws.readyState > 1) {
+               ws = new WebSocket('wss://' + location.hostname + ':8447');
+               ws.onopen = () => { queue.push({ type:'log', tag:'boot', msg:'boot relay connected', ts: Date.now() }); flush(); };
+               ws.onclose = () => { ws = null; };
+            } else if (ws.readyState === 1) flush();
+         } catch (e) { /* best effort */ }
+      };
+      window.addEventListener('error', e =>
+         send('boot-error', (e.message || 'error') + ' @ ' + (e.filename || '') + ':' + (e.lineno || 0)));
+      console.warn = (orig => function(...a) { send('console-warn', a.join(' ')); orig.apply(console, a); })(console.warn);
+      console.error = (orig => function(...a) { send('console-error', a.join(' ').slice(0, 300)); orig.apply(console, a); })(console.error);
+      // relay tagged module logs (my modules log as "[tag] ...")
+      console.log = (orig => function(...a) {
+         const s = a.join(' ');
+         if (s.startsWith('[')) send('console', s.slice(0, 300));
+         orig.apply(console, a);
+      })(console.log);
+      // auto-start the sprites scene once it is registered (this page has no scene menu)
+      (function start() {
+         if (window.chooseFlag) {
+            window.chooseFlag('sprites');
+            if (window.currentName === 'sprites') { send('boot', 'sprites scene auto-started'); return; }
+         }
+         setTimeout(start, 250);
+      })();
+    })();
+  </script>
+</body>
