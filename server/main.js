@@ -1,3 +1,6 @@
+var os = require("os");
+os.tmpDir = os.tmpDir || os.tmpdir;   // OLD FORMIDABLE EXPECTS THE REMOVED os.tmpDir ALIAS
+
 var bodyParser = require("body-parser");
 var express = require("express");
 var formidable = require("formidable");
