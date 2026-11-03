@@ -118,22 +118,30 @@ export function buildBalls(model, table) {
       }
    }
 
-   return { balls, update, R, pickBall };
+   return { balls, update, R, pickContact };
 }
 
-// AIM RAY PICKER: FIRST ACTIVE BALL THE HORIZONTAL RAY FROM (ox,oz) ALONG
-// (dx,dz) TOUCHES (RAY RUNS AT BALL-CENTER HEIGHT). RETURNS {ball, dist} OR NULL.
+// EXACT RAY-SPHERE CONTACT: THE FIRST ACTIVE BALL THE HORIZONTAL RAY FROM
+// (ox,oz) ALONG (dx,dz) TOUCHES (RAY RUNS AT BALL-CENTER HEIGHT). RETURNS THE
+// TRUE CONTACT POINT ON THE SPHERE SURFACE AND THE IMPACT NORMAL (CENTER
+// MINUS CONTACT), SO AN ANGLED HIT LAUNCHES THE BALL AT AN ANGLE.
 
-export function pickBall(balls, ox, oz, dx, dz, maxDist) {
+export function pickContact(balls, ox, oz, dx, dz, maxDist) {
    let best = null;
    for (let b of balls) {
       if (!b.active || b.held) continue;
       let rx = b.pos[0] - ox, rz = b.pos[2] - oz;
-      let t = rx * dx + rz * dz;
-      if (t < .02 || t > maxDist) continue;
-      let px = rx - t * dx, pz = rz - t * dz;
-      if (Math.hypot(px, pz) > R + .019) continue;
-      if (!best || t < best.dist) best = { ball: b, dist: t };
+      let tc = rx * dx + rz * dz;                    // CENTER PROJECTION ALONG THE RAY
+      if (tc < 0 || tc > maxDist + R) continue;
+      let perp2 = rx * rx + rz * rz - tc * tc;
+      if (perp2 > R * R) continue;                   // RAY PASSES OUTSIDE THE SPHERE
+      let th = tc - Math.sqrt(R * R - perp2);        // RAY PARAM AT THE SURFACE
+      if (th < 0 || th > maxDist) continue;
+      let px = ox + th * dx, pz = oz + th * dz;      // CONTACT POINT ON THE SURFACE
+      let nx = b.pos[0] - px, nz = b.pos[2] - pz;
+      let nl = Math.hypot(nx, nz) || 1;
+      nx /= nl; nz /= nl;                            // IMPACT NORMAL: CONTACT -> CENTER
+      if (!best || th < best.dist) best = { ball: b, dist: th, px, pz, nx, nz };
    }
    return best;
 }

@@ -126,11 +126,11 @@ export const init = async model => {
 
    // THE POOL TABLE: FELT GROUND, WOOD APRON + RAILS, SIX POCKETS
 
-   let felt = miniRoot.add('cube').color([.16,.55,.25]);
+   let felt = miniRoot.add('cube').color([.15,.75,.3]).dull();
    felt.identity().move([0, -.015, 0]).scale(FELT_W/2, .015, FELT_D/2);
-   let apron = miniRoot.add('cube').color([.28,.18,.1]);
+   let apron = miniRoot.add('cube').color([.08,.3,.15]);
    apron.identity().move([0, -.048, 0]).scale(.70, .05, .33);
-   let wood = [.45,.3,.16];
+   let wood = [.1,.38,.2];                       // GREEN-TINTED RAILS: THE WHOLE TABLE READS GREEN
    let railL1 = miniRoot.add('cube').color(wood);
    railL1.identity().move([0, .012, -(FELT_D/2 + .0225)]).scale(FELT_W/2 + .05, .025, .045);
    let railL2 = miniRoot.add('cube').color(wood);
@@ -213,7 +213,7 @@ export const init = async model => {
    let aimRoot = miniRoot.add();
    let aimLine = aimRoot.add('tubeZ').color([1,.85,.3]);
    let aimDot = aimRoot.add('sphere').color([1,.35,.3]);
-   let aimRing = aimRoot.add('torusZ').color([1,.5,.2]);   // CONTACT CIRCLE ON A HIT BALL
+   let aimRing = miniRoot.add('torusZ').color([1,.5,.2]);  // CONTACT CIRCLE ON THE BALL SURFACE
 
    // INPUT
    // INDEX TRIGGER: CUE (HOLD TO LOAD, RELEASE TO STRIKE) IN BOTH MODES -
@@ -357,9 +357,9 @@ export const init = async model => {
       aimYaw = headF ? Math.atan2(-headF[0], -headF[2]) : peng.yaw;
       let dx = -Math.sin(aimYaw), dz = -Math.cos(aimYaw);
       let ox = peng.pos[0] + dx * CUE_TIP, oz = peng.pos[2] + dz * CUE_TIP;
-      let hit = ballsMod.pickBall(ballsMod.balls, ox, oz, dx, dz, AIM_MAX);
-      aimBall = hit ? hit.ball : null;
-      aimL = hit ? hit.dist : AIM_MAX - CUE_TIP;
+      let contact = ballsMod.pickContact(ballsMod.balls, ox, oz, dx, dz, AIM_MAX);
+      aimBall = contact ? contact.ball : null;
+      aimL = contact ? contact.dist : AIM_MAX - CUE_TIP;
 
       // CUE STICK STATE MACHINE: HOLD EITHER INDEX TRIGGER TO LOAD (PULL
       // BACK + DARKEN), RELEASE TO STRIKE. THE STRIKE RE-PICKS THE BALL AT
@@ -381,13 +381,13 @@ export const init = async model => {
          let k = Math.min(1, (t - cueAnim.t0) / .16);      // THE LUNGE, 160 ms
          pull = -.055 * cueAnim.charge + (.055 * cueAnim.charge + .025) * Math.min(1, k / .45);
          dark = cueAnim.charge * (1 - Math.min(1, k / .5));
-         if (k >= .45 && !cueAnim.applied) {               // CONTACT: LAUNCH THE BALL
-            let ch = ballsMod.pickBall(ballsMod.balls,
-                                       peng.pos[0] + dx * CUE_TIP, peng.pos[2] + dz * CUE_TIP,
-                                       dx, dz, AIM_MAX);
+         if (k >= .45 && !cueAnim.applied) {               // CONTACT: LAUNCH ALONG THE IMPACT NORMAL
+            let ch = ballsMod.pickContact(ballsMod.balls,
+                                          peng.pos[0] + dx * CUE_TIP, peng.pos[2] + dz * CUE_TIP,
+                                          dx, dz, AIM_MAX);
             if (ch) {
                let sp = STRIKE_LO + (STRIKE_HI - STRIKE_LO) * cueAnim.charge;
-               ch.ball.vel = [dx * sp, 0, dz * sp];
+               ch.ball.vel = [ch.nx * sp, 0, ch.nz * sp];  // PERFECT ANGLE: NORMAL AT THE CONTACT POINT
             }
             cueAnim.applied = true;
          }
@@ -414,9 +414,11 @@ export const init = async model => {
       aimRoot.identity().move([peng.pos[0], ballsMod.R, peng.pos[2]]).turnY(aimYaw);
       aimLine.identity().move([0, 0, -(CUE_TIP + aimL / 2)]).scale(.0013, .0013, aimL / 2)
              .opacity(mode == 1 ? .6 : 0);
-      if (aimBall) {                               // CONTACT CIRCLE ON THE BALL SURFACE
-         aimRing.identity().move([0, 0, -(CUE_TIP + aimL) + ballsMod.R]).scale(.012)
-                .opacity(mode == 2 ? .95 : .8);
+      if (contact) {                               // CONTACT CIRCLE TANGENT TO THE SPHERE
+         aimRing.identity()
+                .move([contact.px + contact.nx * .0012, ballsMod.R, contact.pz + contact.nz * .0012])
+                .turnY(Math.atan2(contact.nx, contact.nz))
+                .scale(.0062).opacity(mode == 2 ? .95 : .8);
          aimDot.opacity(0);
       }
       else {                                       // NOTHING IN LINE: AIMPOINT AT RAY END
