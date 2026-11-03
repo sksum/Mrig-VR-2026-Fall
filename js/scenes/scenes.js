@@ -19,6 +19,7 @@ export default () => {
             { name: "bouncing"   , path: "./bouncing.js"   , public: true },
             { name: "widgets"    , path: "./widgets.js"    , public: true },
             { name: "miniature"  , path: "./miniature.js"  , public: true },
+            { name: "pooltable"  , path: "./pooltable.js"  , public: true },
       ]
    };
 }
