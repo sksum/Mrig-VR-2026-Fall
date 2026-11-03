@@ -44,7 +44,7 @@ export function buildPenguin(model) {
    let bowKnot = head.add('sphere').color(BOW);
    let bowL = head.add('sphere').color(BOW), bowR = head.add('sphere').color(BOW);
 
-   const peng = { pos: [0, 0, .12], yaw: 2.8, visible: true, update };
+   const peng = { pos: [0, 0, .22], yaw: 2.8, visible: true, update };
 
    let phase = 0, lookYaw = 0, lookUntil = 1.5, twitchUntil = 0;
 

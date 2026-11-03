@@ -13,7 +13,8 @@ import * as global from "../global.js";
 // THE PENGUIN IS AN INDEPENDENT CHARACTER - IT NEVER MIRRORS YOUR HEAD
 // OR HANDS (NO CONTROLLER MAPPING, UNLIKE THE EARLIER MINI-ME SCENES).
 // MODE 1 (3RD PERSON): YOUR REAL HEAD WATCHES THE PENGUIN; TRIGGER GRABS BALLS.
-// MODE 2 (PENGUIN POV): THE CAMERA RIDES THE PENGUIN; TRIGGER DOES NOTHING.
+// MODE 2 (PENGUIN POV): THE CAMERA RIDES THE PENGUIN AND THE AVATAR IS FULLY
+// HIDDEN - ONLY THE CAMERA, THE CUE AND THE BALLS REMAIN. TRIGGER SHOOTS.
 // THE JOYSTICK MOVES THE PENGUIN IN BOTH MODES; WALKING BODY-CHECKS BALLS,
 // AND BALLS THAT ROLL INTO POCKETS SINK AND RESPAWN AT THE RACK. BALLS
 // MOVE ONLY IN THE FELT PLANE - NOTHING LIFTS THEM OFF THE TABLE.
@@ -342,13 +343,15 @@ export const init = async model => {
                     cg.mScale(gScale));
       miniRoot.setMatrix(gM);
 
-      // GLB PENGUIN RIDES THE SAME TRANSFORM (CLAY PENGUIN HIDES UNDERNEATH)
+      // GLB PENGUIN RIDES THE SAME TRANSFORM. IN PENGUIN POV THE AVATAR IS
+      // COMPLETELY HIDDEN - ONLY THE CAMERA, THE CUE AND THE BALLS REMAIN.
 
-      peng.visible = !glbReady;
+      peng.visible = !glbReady && mode != 2;
       if (glbReady) {
          pengGltf.matrix = cg.mMultiply(gM,
             cg.mMultiply(cg.mTranslate([peng.pos[0], 0, peng.pos[2]]),
-            cg.mMultiply(cg.mRotateY(peng.yaw + Math.PI), cg.mScale(PENGUIN_HEIGHT))));
+            cg.mMultiply(cg.mRotateY(peng.yaw + Math.PI),
+            cg.mScale(mode == 2 ? 0 : PENGUIN_HEIGHT))));
       }
 
       // AIM: HORIZONTAL RAY FROM THE PENGUIN AT BALL-CENTER HEIGHT, SWUNG BY

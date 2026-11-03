@@ -21,9 +21,9 @@ export function buildBalls(model, table) {
 
    let balls = [];
    let gap = .048;
-   for (let i = 0, n = 0 ; n < 5 ; n++)          // RACK TRIANGLE, APEX TOWARD -z
+   for (let i = 0, n = 0 ; n < 5 ; n++)          // STARTING RACK: TRIANGLE AT THE FOOT SPOT
       for (let j = 0 ; j <= n ; j++, i++) {
-         let x = (j - n/2) * gap, z = -(table.d/2 - .22) + n * gap * .87;
+         let x = (j - n/2) * gap, z = -(table.d/2 - .17) + n * gap * .87;
          balls.push({ pos: [x, R, z], home: [x, R, z], vel: [0,0,0],
                       active: true, timer: 0, age: 1, held: false,
                       node: model.add('sphere').color(COLORS[i]) });
