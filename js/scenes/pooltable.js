@@ -18,11 +18,13 @@ import * as global from "../global.js";
 // AND BALLS THAT ROLL INTO POCKETS SINK AND RESPAWN AT THE RACK. BALLS
 // MOVE ONLY IN THE FELT PLANE - NOTHING LIFTS THEM OFF THE TABLE.
 //
-// THE CUE STICK: THE PENGUIN HOLDS IT HORIZONTALLY; IT AIMS WITH YOUR
-// HEAD YAW IN BOTH MODES, FIXED AT BALL-CENTER HEIGHT. IN 3RD PERSON YOU
-// SEE THE AIM RAY, IN PENGUIN POV AN AIMPOINT. LONG-PRESS A (RIGHT
-// CONTROLLER) TO LOAD - THE CUE PULLS BACK AND DARKENS - RELEASE TO
-// STRIKE THE BALL ON THE AIM LINE.
+// THE CUE STICK: THE PENGUIN HOLDS IT HORIZONTALLY AT BALL-CENTER HEIGHT;
+// IT AIMS WITH YOUR HEAD YAW IN BOTH MODES. IN 3RD PERSON YOU SEE THE AIM
+// RAY WITH A CONTACT RING ON THE BALL IT TOUCHES; IN PENGUIN POV AN
+// AIMPOINT. HOLD EITHER INDEX TRIGGER TO LOAD - THE CUE PULLS BACK AND
+// DARKENS - RELEASE TO STRIKE THE BALL ON THE AIM LINE. (IN 3RD PERSON
+// THE TRIGGER STILL GRABS A BALL IF ONE IS IN REACH.) THE GRIP (SECONDARY
+// GRASP TRIGGER, EITHER HAND) SWITCHES VIEWS. 'v' ALSO TOGGLES.
 //
 // VIEWPOINT: EVERYTHING MINIATURE LIVES UNDER ONE NODE (miniRoot) IN
 // MINIATURE SPACE (FELT TOP = y 0). ONE MATRIX PER FRAME MAPS IT TO THE WORLD:
@@ -46,7 +48,6 @@ const TRANSIT   = .8;                            // SECONDS TO SWITCH VIEWS
 const GRAB_R    = .16;                           // GRAB REACH, WORLD METERS
 const PENGUIN_SPEED = .45;                       // MINIATURE METERS PER SECOND
 const PENGUIN_R = .07;                           // BODY RADIUS FOR BALL PUSHES
-const CUE_Y     = .105;                          // CUE HEIGHT: UPPER-BODY OF THE PENGUIN
 const CUE_TIP   = .15;                           // CUE TIP DISTANCE FROM BODY CENTER
 const AIM_MAX   = .9;                            // AIM RAY REACH, MINIATURE METERS
 const CHARGE_T  = 1.2;                           // SECONDS TO FULL CHARGE (HOLD A)
@@ -63,7 +64,7 @@ let pengSpeed = 0;
 let pocketedCount = 0, nextDbg = 0;
 let glbReady = false;                            // THE GLB PENGUIN REPLACES THE CLAY ONE
 let cueAnim = { state: 'idle', t0: 0, charge: 0, applied: false };
-let prevA = false, aimYaw = 0, aimL = .5, aimBall = null;
+let chargingHand = null, aimYaw = 0, aimL = .5, aimBall = null, prevGrip = false;
 
 const Q_IDENT = [0, 0, 0, 1];
 
@@ -125,7 +126,7 @@ export const init = async model => {
 
    // THE POOL TABLE: FELT GROUND, WOOD APRON + RAILS, SIX POCKETS
 
-   let felt = miniRoot.add('cube').color([.13,.42,.2]);
+   let felt = miniRoot.add('cube').color([.16,.55,.25]);
    felt.identity().move([0, -.015, 0]).scale(FELT_W/2, .015, FELT_D/2);
    let apron = miniRoot.add('cube').color([.28,.18,.1]);
    apron.identity().move([0, -.048, 0]).scale(.70, .05, .33);
@@ -212,26 +213,35 @@ export const init = async model => {
    let aimRoot = miniRoot.add();
    let aimLine = aimRoot.add('tubeZ').color([1,.85,.3]);
    let aimDot = aimRoot.add('sphere').color([1,.35,.3]);
+   let aimRing = aimRoot.add('torusZ').color([1,.5,.2]);   // CONTACT CIRCLE ON A HIT BALL
 
    // INPUT
+   // INDEX TRIGGER: CUE (HOLD TO LOAD, RELEASE TO STRIKE) IN BOTH MODES -
+   // IN 3RD PERSON IT GRABS A BALL INSTEAD WHEN ONE IS IN REACH.
+   // GRIP (SECONDARY GRASP TRIGGER, EITHER HAND): SWITCH VIEWS.
 
    inputEvents.onPress = hand => {
       if (suppress) return;
       let p = inputEvents.pos(hand);
       if (!placed) { placeAnchor(p); return; }
       if (transition < 1 || !p) return;
-      if (mode != 1) return;                       // NO CONTROLLER ACTIONS IN PENGUIN POV
 
-      for (let b of ballsMod.balls) {              // GRAB THE NEAREST BALL IN REACH
-         let bw = cg.mTransform(gM, b.pos);
-         if (b.active && cg.distance(p, bw) < GRAB_R) {
-            let m = cg.mInverse(gM);
-            grabbed = { hand, ball: b,
-                        offset: cg.subtract(b.pos, cg.mTransform(m, p)),
-                        lastPos: p, lastT: model.time };
-            b.held = true;
-            return;
+      if (mode == 1) {                             // 3RD PERSON: GRAB WINS IF IN REACH
+         for (let b of ballsMod.balls) {
+            let bw = cg.mTransform(gM, b.pos);
+            if (b.active && cg.distance(p, bw) < GRAB_R) {
+               let m = cg.mInverse(gM);
+               grabbed = { hand, ball: b,
+                           offset: cg.subtract(b.pos, cg.mTransform(m, p)),
+                           lastPos: p, lastT: model.time };
+               b.held = true;
+               return;
+            }
          }
+      }
+      if (cueAnim.state == 'idle') {               // LOAD THE CUE
+         chargingHand = hand;
+         cueAnim = { state: 'charge', t0: model.time, charge: 0, applied: false };
       }
    }
    inputEvents.onDrag = hand => {
@@ -257,10 +267,12 @@ export const init = async model => {
          b.vel = [vm[0], 0, vm[2]];
          grabbed = null;
       }
+      else if (chargingHand == hand && cueAnim.state == 'charge') {
+         chargingHand = null;                      // RELEASED: STRIKE
+         cueAnim = { state: 'strike', t0: model.time, charge: cueAnim.charge, applied: false };
+      }
       suppress = false;
    }
-   inputEvents.onDoublePress = hand => toggleMode();
-
    if (!window.pooltableKeys) {
       window.pooltableKeys = true;
       document.addEventListener('keydown', e => {
@@ -283,8 +295,8 @@ export const init = async model => {
       // WITH YOU); IN 3RD PERSON IT FACES WHERE IT WALKS.
 
       let j = joyStickState.right, jl = joyStickState.left;
-      let sx = (Math.abs(j.x) > .15 ? j.x : 0) + (Math.abs(jl.x) > .15 ? jl.x : 0);
-      let sy = (Math.abs(j.y) > .15 ? j.y : 0) + (Math.abs(jl.y) > .15 ? jl.y : 0);
+      let sx = (Math.abs(j.x) > .15 ? -j.x : 0) + (Math.abs(jl.x) > .15 ? -jl.x : 0);  // AXES REPORT INVERTED
+      let sy = (Math.abs(j.y) > .15 ? -j.y : 0) + (Math.abs(jl.y) > .15 ? -jl.y : 0);
       let mag = Math.min(1, Math.hypot(sx, sy));
       pengSpeed = 0;
       let headF = H ? cg.normalize([-H[8], -H[9], -H[10]]) : null;
@@ -349,16 +361,17 @@ export const init = async model => {
       aimBall = hit ? hit.ball : null;
       aimL = hit ? hit.dist : AIM_MAX - CUE_TIP;
 
-      // CUE STICK STATE MACHINE: LONG-PRESS A TO LOAD (PULL BACK + DARKEN),
-      // RELEASE TO STRIKE. THE STRIKE RE-PICKS THE BALL AT CONTACT MOMENT.
+      // CUE STICK STATE MACHINE: HOLD EITHER INDEX TRIGGER TO LOAD (PULL
+      // BACK + DARKEN), RELEASE TO STRIKE. THE STRIKE RE-PICKS THE BALL AT
+      // CONTACT MOMENT. THE GRIP TOGGLES VIEWS.
 
-      let ab = !!(buttonState.right[4] && buttonState.right[4].pressed);
-      if (ab && !prevA && placed && transition >= 1 && !grabbed)
-         cueAnim = { state: 'charge', t0: t, charge: 0, applied: false };
-      if (ab && cueAnim.state == 'charge')
+      let grip = (buttonState.left[1] && buttonState.left[1].pressed) ||
+                 (buttonState.right[1] && buttonState.right[1].pressed);
+      if (grip && !prevGrip) toggleMode();
+      prevGrip = grip;
+
+      if (chargingHand && cueAnim.state == 'charge')
          cueAnim.charge = Math.min(1, (t - cueAnim.t0) / CHARGE_T);
-      if (!ab && prevA && cueAnim.state == 'charge')       // RELEASED: STRIKE
-         cueAnim = { state: 'strike', t0: t, charge: cueAnim.charge, applied: false };
       let pull = 0, dark = 0;
       if (cueAnim.state == 'charge') {
          pull = -.055 * cueAnim.charge;
@@ -380,16 +393,17 @@ export const init = async model => {
          }
          if (k >= 1) cueAnim.state = 'idle';
       }
-      prevA = ab;
 
       // WHILE LOADING, THE PENGUIN TURNS TO FACE THE AIM
 
       if (cueAnim.state != 'idle' && headF)
          peng.yaw = cg.mixAngle(peng.yaw, aimYaw, Math.min(1, 10 * dt));
 
-      // RENDER CUE + AIM
+      // RENDER CUE + AIM. THE CUE RIDES AT BALL-CENTER HEIGHT, LEVEL WITH
+      // THE AIM RAY AND THE BALLS IT TOUCHES.
 
-      cueRoot.identity().move([peng.pos[0], CUE_Y, peng.pos[2]]).turnY(aimYaw);
+      let cueY = ballsMod.R;
+      cueRoot.identity().move([peng.pos[0], cueY, peng.pos[2]]).turnY(aimYaw);
       cueSlide.identity().move([0, 0, pull]);
       let dd = 1 - .45 * dark;
       cueButt .identity().move([0, 0,  .035]).scale(.0075, .0075, .105).color(.55*dd, .32*dd, .16*dd);
@@ -400,8 +414,16 @@ export const init = async model => {
       aimRoot.identity().move([peng.pos[0], ballsMod.R, peng.pos[2]]).turnY(aimYaw);
       aimLine.identity().move([0, 0, -(CUE_TIP + aimL / 2)]).scale(.0013, .0013, aimL / 2)
              .opacity(mode == 1 ? .6 : 0);
-      aimDot.identity().move([0, 0, -(CUE_TIP + aimL)]).scale(.01)
-            .opacity(mode == 2 ? .9 : .7);
+      if (aimBall) {                               // CONTACT CIRCLE ON THE BALL SURFACE
+         aimRing.identity().move([0, 0, -(CUE_TIP + aimL) + ballsMod.R]).scale(.012)
+                .opacity(mode == 2 ? .95 : .8);
+         aimDot.opacity(0);
+      }
+      else {                                       // NOTHING IN LINE: AIMPOINT AT RAY END
+         aimRing.opacity(0);
+         aimDot.identity().move([0, 0, -(CUE_TIP + aimL)]).scale(.01)
+               .opacity(mode == 2 ? .9 : .7);
+      }
 
       // PHYSICS + DRAW
 
