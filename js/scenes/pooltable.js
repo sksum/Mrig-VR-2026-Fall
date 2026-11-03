@@ -16,12 +16,14 @@ import { controllerMatrix, joyStickState } from "../render/core/controllerInput.
 //
 // VIEWPOINT: EVERYTHING MINIATURE LIVES UNDER ONE NODE (miniRoot) IN
 // MINIATURE SPACE (FELT TOP = y 0). ONE MATRIX PER FRAME MAPS IT TO THE WORLD:
-//    MODE 1:  G1 = T(anchor)                      DIORAMA ON THE REAL TABLE
-//    MODE 2:  G2 = H . S(12) . INVERSE(A)         YOUR EYE ON THE PENGUIN'S EYE,
-//                                                 WORLD INFLATED 12x ABOUT IT,
-//                                                 VIEW ROTATED BY YOUR HEAD
-// (A = PENGUIN HEAD MARKER: T([px,eyeH,pz]) . RY(yaw).) THE TRANSITION
-// BLENDS TRANSLATION, QUATERNION-SLERPED ROTATION AND SCALE 12^ease(t).
+//    MODE 1:  G1 = T(anchor)            STATIONARY DIORAMA ON THE REAL TABLE
+//    MODE 2:  G2 = T(CAM) . RY(yaw) . RX(pitch) . S(12) . INVERSE(A)
+//    THE CAMERA IS PINNED TO CAM = [0, 12*EYE_H, 0] AND THE TRANSFORM IS
+//    BUILT ONLY FROM THE PENGUIN'S POSE: YOUR HEAD YAW TURNS THE PENGUIN,
+//    YOUR HEAD PITCH PITCHES THE CAMERA, AND THE ROOM NEVER DRAGS WITH
+//    YOUR HEAD. (A = PENGUIN HEAD MARKER: T([px,eyeH,pz]) . RY(yaw).)
+// THE TRANSITION BLENDS TRANSLATION, QUATERNION-SLERPED ROTATION AND
+// SCALE 12^ease(t) TOWARD WHICHEVER MODE IS CURRENT.
 //
 // NO INSTRUCTION BOARDS ANYWHERE. KEYS: 'v' TOGGLE, 't'/'r' PLACE, 'd' DEBUG
 // (CONSOLE + TRANSLUCENT GRAB VOLUME ONLY).
@@ -227,38 +229,55 @@ export const init = async model => {
       let t = model.time, dt = Math.min(model.deltaTime, .1);
       let H = headMatrix();
 
-      // JOYSTICK LOCOMOTION - BOTH MODES. FORWARD = YOUR HEAD'S FORWARD.
-      // THE PENGUIN IS INDEPENDENT: THE CAMERA NEVER DRIVES ITS POSE.
+      // LOCOMOTION - BOTH MODES. FORWARD = YOUR HEAD'S FORWARD.
+      // IN PENGUIN POV YOUR HEAD YAW TURNS THE PENGUIN (THE PERSON ROTATES
+      // WITH YOU); IN 3RD PERSON IT FACES WHERE IT WALKS.
 
       let j = joyStickState.right, jl = joyStickState.left;
       let sx = (Math.abs(j.x) > .15 ? j.x : 0) + (Math.abs(jl.x) > .15 ? jl.x : 0);
       let sy = (Math.abs(j.y) > .15 ? j.y : 0) + (Math.abs(jl.y) > .15 ? jl.y : 0);
       let mag = Math.min(1, Math.hypot(sx, sy));
       pengSpeed = 0;
-      if (mag > 0 && H) {
-         let f = cg.normalize([-H[8], 0, -H[10]]), r = [-f[2], 0, f[0]];
-         let dir = cg.normalize(cg.add(cg.scale(f, -sy), cg.scale(r, sx)));
-         peng.pos = clampFelt(cg.add(peng.pos, cg.scale(dir, PENGUIN_SPEED * mag * dt)));
-         peng.yaw = cg.mixAngle(peng.yaw, Math.atan2(-dir[0], -dir[2]), Math.min(1, 8 * dt));
+      let headF = H ? cg.normalize([-H[8], -H[9], -H[10]]) : null;
+      let moveDir = null;
+      if (mag > 0) {
+         let f = headF ? cg.normalize([-headF[0], 0, -headF[2]]) : [0, 0, -1];
+         let r = [-f[2], 0, f[0]];
+         moveDir = cg.normalize(cg.add(cg.scale(f, -sy), cg.scale(r, sx)));
+         peng.pos = clampFelt(cg.add(peng.pos, cg.scale(moveDir, PENGUIN_SPEED * mag * dt)));
          pengSpeed = PENGUIN_SPEED * mag;
       }
+      if (headF) {
+         let yawTarget = peng.yaw;
+         if (mode == 2)
+            yawTarget = Math.atan2(-headF[0], -headF[2]);       // POV: HEAD YAW TURNS THE PENGUIN
+         else if (moveDir)
+            yawTarget = Math.atan2(-moveDir[0], -moveDir[2]);   // 3RD PERSON: FACE THE WALK
+         peng.yaw = cg.mixAngle(peng.yaw, yawTarget, Math.min(1, (mode == 2 ? 12 : 8) * dt));
+      }
 
-      // THE ONE MATRIX THAT MAPS MINIATURE SPACE TO THE WORLD
+      // THE ONE MATRIX THAT MAPS MINIATURE SPACE TO THE WORLD.
+      // MODE 1 POSE: T(anchor) - COMPLETELY STATIONARY, HEAD-INDEPENDENT.
+      // MODE 2 POSE: BUILT ONLY FROM THE PENGUIN'S POSE (CAMERA FIXED AT
+      // [0, 12*EYE_H, 0]; YOUR HEAD YAW TURNS THE PENGUIN, YOUR HEAD PITCH
+      // PITCHES THE CAMERA) SO THE ROOM NEVER DRAGS WITH YOUR HEAD.
 
       transition = Math.min(1, transition + dt / TRANSIT);
       let e = cg.ease(transition);
-      let p1 = anchor, q1 = Q_IDENT;
+      let blend = mode == 2 ? e : 1 - e;           // BLEND TOWARD THE CURRENT MODE
+
+      let pitch = headF ? Math.asin(cg.clamp(headF[1], -.85, .85)) : 0;
       let A = cg.mMultiply(cg.mTranslate([peng.pos[0], PENGUIN_EYE_H, peng.pos[2]]),
                            cg.mRotateY(peng.yaw));
-      let p2 = p1, q2 = q1;
-      if (H) {
-         let G2 = cg.mMultiply(H, cg.mMultiply(cg.mScale(SCALE), cg.mInverse(A)));
-         let d2 = decompose(G2);
-         p2 = d2.p; q2 = d2.q;
-      }
-      let gPos = cg.mix(p1, p2, e);
-      let gQ = qSlerp(q1, q2, e);
-      let gScale = Math.pow(SCALE, e);
+      let G2 = cg.mMultiply(cg.mTranslate([0, PENGUIN_EYE_H * SCALE, 0]),
+               cg.mMultiply(cg.mRotateY(peng.yaw),
+               cg.mMultiply(cg.mRotateX(pitch),
+               cg.mMultiply(cg.mScale(SCALE), cg.mInverse(A)))));
+      let d2 = decompose(G2);
+
+      let gPos = cg.mix(anchor, d2.p, blend);
+      let gQ = qSlerp(Q_IDENT, d2.q, blend);
+      let gScale = Math.pow(SCALE, blend);
       gM = cg.mMultiply(cg.mMultiply(cg.mTranslate(gPos),
                     cg.mFromQuaternion({x: gQ[0], y: gQ[1], z: gQ[2], w: gQ[3]})),
                     cg.mScale(gScale));

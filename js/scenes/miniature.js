@@ -321,12 +321,14 @@ export const init = async model => {
       let Lw = handMatrix('left'), Rw = handMatrix('right');
 
       // THE ONE MATRIX THAT MAPS MINIATURE SPACE TO THE WORLD
+      // (BLEND TOWARD THE CURRENT MODE: MODE 1 SETTLES AT T(anchor) - STATIONARY)
 
       transition = Math.min(1, transition + dt / TRANSIT);
       let e = cg.ease(transition);
+      let blend = mode == 2 ? e : 1 - e;
       let floorPt = [anchor[0], 0, anchor[2]];
-      gPos = cg.mix(anchor, floorPt, e);
-      gScale = Math.pow(SCALE, e);
+      gPos = cg.mix(anchor, floorPt, blend);
+      gScale = Math.pow(SCALE, blend);
       miniRoot.identity().move(gPos).scale(gScale);
 
       // MIRROR MY POSE INTO MINIATURE SPACE
