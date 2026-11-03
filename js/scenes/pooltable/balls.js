@@ -59,6 +59,8 @@ export function buildBalls(model, table) {
          b.age += dt;
          b.vel = cg.scale(b.vel, damp);
          b.pos = cg.add(b.pos, cg.scale(b.vel, dt));
+         b.vel[1] = 0;                          // BALLS LIVE ON THE FELT PLANE ONLY:
+         b.pos[1] = R;                          // NO FORCES MAY LIFT THEM OFF THE TABLE
 
          for (let a of [0, 2]) {                  // RAILS
             let lim = a ? limZ : limX;
@@ -116,5 +118,22 @@ export function buildBalls(model, table) {
       }
    }
 
-   return { balls, update, R };
+   return { balls, update, R, pickBall };
+}
+
+// AIM RAY PICKER: FIRST ACTIVE BALL THE HORIZONTAL RAY FROM (ox,oz) ALONG
+// (dx,dz) TOUCHES (RAY RUNS AT BALL-CENTER HEIGHT). RETURNS {ball, dist} OR NULL.
+
+export function pickBall(balls, ox, oz, dx, dz, maxDist) {
+   let best = null;
+   for (let b of balls) {
+      if (!b.active || b.held) continue;
+      let rx = b.pos[0] - ox, rz = b.pos[2] - oz;
+      let t = rx * dx + rz * dz;
+      if (t < .02 || t > maxDist) continue;
+      let px = rx - t * dx, pz = rz - t * dz;
+      if (Math.hypot(px, pz) > R + .019) continue;
+      if (!best || t < best.dist) best = { ball: b, dist: t };
+   }
+   return best;
 }

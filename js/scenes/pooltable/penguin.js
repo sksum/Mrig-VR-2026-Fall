@@ -44,7 +44,7 @@ export function buildPenguin(model) {
    let bowKnot = head.add('sphere').color(BOW);
    let bowL = head.add('sphere').color(BOW), bowR = head.add('sphere').color(BOW);
 
-   const peng = { pos: [0, 0, .12], yaw: 2.8, update };
+   const peng = { pos: [0, 0, .12], yaw: 2.8, visible: true, update };
 
    let phase = 0, lookYaw = 0, lookUntil = 1.5, twitchUntil = 0;
 
@@ -63,7 +63,8 @@ export function buildPenguin(model) {
       let bob = ctx.moving ? Math.abs(Math.sin(phase)) * .015 : Math.sin(phase) * .004;
       let rock = ctx.moving ? Math.sin(phase) * .09 : 0;
 
-      root.identity().move(peng.pos).turnY(peng.yaw).turnZ(rock);
+      root.identity().move(peng.pos).turnY(peng.yaw).turnZ(rock)
+          .opacity(peng.visible === false ? 0 : 1);
 
       body.identity().move([0, .42 + bob, 0]).scale(.42, .46, .40);
       belly.identity().move([0, .32 + bob, -.22]).scale(.30, .33, .20);
