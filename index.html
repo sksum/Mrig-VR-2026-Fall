@@ -75,6 +75,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
     <audio id="local_webrtc" autoplay></audio>
   </div>
 
+  <script>
+    // Remote console: pipe client errors/warnings to the dev server log
+    (() => {
+      let send = m => { try { new Image().src = "/__log?" + encodeURIComponent(m); } catch (e) {} };
+      window.addEventListener("error", e => send("ERROR " + e.message + " @ " + e.filename + ":" + e.lineno));
+      window.addEventListener("unhandledrejection", e => send("REJECT " + e.reason));
+      let ce = console.error.bind(console), cw = console.warn.bind(console);
+      console.error = (...a) => { send("console.error " + a.join(" ")); ce(...a); };
+      console.warn  = (...a) => { send("console.warn " + a.join(" "));  cw(...a); };
+    })();
+  </script>
   <script type="module" src="/js/main.js"></script>
 
 </body>

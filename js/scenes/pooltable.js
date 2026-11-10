@@ -40,6 +40,13 @@ import * as global from "../global.js";
 //
 // NO INSTRUCTION BOARDS ANYWHERE. KEYS: 'v' TOGGLE, 't'/'r' PLACE, 'd' DEBUG
 // (CONSOLE + TRANSLUCENT GRAB VOLUME ONLY).
+//
+// HOMEWORK 8 - THE SECOND PLAYER: A HUMAN-SIZE (12x) CLAY PENGUIN STANDING
+// OUTSIDE THE TABLE, DRIVEN BY REAL HEADSET TRACKING. THE GRIP NOW CYCLES
+// THREE VIEWS: 3RD PERSON -> PENGUIN POV -> GIANT POV. IN GIANT POV THE
+// TRIGGER AND JOYSTICK ARE INERT; HOLDING B TILTS THE TABLE TOWARD YOUR
+// HEAD (RAMPING UP TO A FIXED MAX ANGLE, ROTATED ABOUT THE FELT CENTER SO
+// THE CENTER NEVER MOVES) - BALLS AND THE MINI PENGUIN SLIDE DOWNHILL.
 
 const SCALE     = 12;                            // 1 IN = 1 FT
 const TABLE_H   = .762;                          // REAL TABLE HEIGHT: ~30 IN
@@ -53,9 +60,14 @@ const CUE_TIP   = .15;                           // CUE TIP DISTANCE FROM BODY C
 const AIM_MAX   = .9;                            // AIM RAY REACH, MINIATURE METERS
 const CHARGE_T  = 1.2;                           // SECONDS TO FULL CHARGE (HOLD A)
 const STRIKE_LO = 1.2, STRIKE_HI = 4.0;          // SHOT SPEED RANGE, MINIATURE M/S
+const TILT_MAX  = .18;                           // MAX TABLE TILT, RADIANS
+const TILT_RATE = TILT_MAX / 1.5;                // RAMP SPEED UP AND BACK DOWN
+const TILT_G    = 6;                             // DOWNHILL BALL ACCELERATION FACTOR
+const GIANT_PAD = .35;                           // GIANT STANDS THIS FAR FROM THE RAILS, WORLD M
 
 let anchor = [0, TABLE_H, -.5];                  // MINIATURE-SPACE ORIGIN ON THE REAL TABLETOP
-let mode = 1;                                    // 1 = 3RD PERSON, 2 = PENGUIN POV
+let mode = 1;                                    // 1 = 3RD PERSON, 2 = PENGUIN POV, 3 = GIANT POV
+let tilt = 0, tiltDir = [0, 0, -1];              // CURRENT TABLE TILT + DOWNHILL DIRECTION (WORLD)
 let placed = false, debug = false;
 let transition = 1;                              // 0..1, PROGRESS OF A MODE SWITCH
 let gM = null;                                   // CURRENT G MATRIX (MINIATURE -> WORLD)
@@ -112,8 +124,9 @@ let frontOfHead = () => {
 let toggleMode = () => {
    if (!placed || transition < 1) return;
    if (grabbed) { grabbed.ball.held = false; grabbed = null; }
+   if (cueAnim.state == 'charge') cueAnim.state = 'idle';
    suppress = true;
-   mode = 3 - mode;
+   mode = mode % 3 + 1;                          // 1 -> 2 -> 3 -> 1
    transition = 0;
 }
 
@@ -182,6 +195,13 @@ export const init = async model => {
    let ballsMod = buildBalls(miniRoot, { w: FELT_W, d: FELT_D, pocketR: .034 });
    let peng = buildPenguin(miniRoot);
 
+   // HOMEWORK 8: THE SECOND PLAYER - THE SAME PENGUIN AT 12x (HUMAN SIZE,
+   // ~1.82 m) UNDER A SCENE-LEVEL ROOT, NOT miniRoot, SO IT NEVER RIDES
+   // THE TABLE. ITS .pos LIVES IN WORLD/12 UNITS (THE ROOT IS SCALED 12).
+
+   let giantRoot = model.add().scale(SCALE);
+   let giant = buildPenguin(giantRoot);
+
    console.log('pooltable: penguin height ' + (1000 * PENGUIN_HEIGHT) + ' mm (6 in at 1/12 scale)');
 
    // THE EXACT CHARACTER-STUDIO PENGUIN, EXPORTED TO GLB (MEDIA/GLTF/PENGUIN),
@@ -225,7 +245,7 @@ export const init = async model => {
       if (suppress) return;
       let p = inputEvents.pos(hand);
       if (!placed) { placeAnchor(p); return; }
-      if (transition < 1 || !p) return;
+      if (transition < 1 || !p || mode == 3) return;   // GIANT POV: NO GRAB, NO CUE
 
       if (mode == 1) {                             // 3RD PERSON: GRAB WINS IF IN REACH
          for (let b of ballsMod.balls) {
@@ -302,7 +322,7 @@ export const init = async model => {
       pengSpeed = 0;
       let headF = H ? cg.normalize([-H[8], -H[9], -H[10]]) : null;
       let moveDir = null;
-      if (mag > 0) {
+      if (mag > 0 && mode != 3) {                  // GIANT POV: JOYSTICK IS INERT
          let f = headF ? cg.normalize([-headF[0], 0, -headF[2]]) : [0, 0, -1];
          let r = [-f[2], 0, f[0]];
          moveDir = cg.normalize(cg.add(cg.scale(f, -sy), cg.scale(r, sx)));
@@ -318,6 +338,34 @@ export const init = async model => {
          peng.yaw = cg.mixAngle(peng.yaw, yawTarget, Math.min(1, (mode == 2 ? 12 : 8) * dt));
       }
 
+      // THE GIANT (SECOND PLAYER): ITS FLOOR POSITION MIRRORS YOUR REAL HEAD,
+      // CLAMPED OUTSIDE THE TABLE FOOTPRINT SO IT NEVER CLIPS THE RAILS.
+
+      let gPosW = [0, 0, -1];                     // GIANT FEET IN WORLD METERS
+      if (H) {
+         let x = H[12], z = H[14];
+         let hw = FELT_W/2 + .05 + GIANT_PAD, hd = FELT_D/2 + .05 + GIANT_PAD;
+         if (Math.abs(x) < hw && Math.abs(z) < hd)   // INSIDE: PUSH OUT THE SHALLOWER AXIS
+            if (hw - Math.abs(x) < hd - Math.abs(z)) x = Math.sign(x || 1) * hw;
+            else                                      z = Math.sign(z || 1) * hd;
+         gPosW = [x, 0, z];
+      }
+      giant.pos = [gPosW[0] / SCALE, 0, gPosW[2] / SCALE];
+      if (headF) giant.yaw = Math.atan2(-headF[0], -headF[2]);
+      giant.visible = mode != 3;
+
+      // THE TILT: HOLD B IN GIANT POV. THE DOWNHILL DIRECTION POINTS FROM THE
+      // TABLE CENTER TOWARD THE GIANT'S HEAD; THE ANGLE RAMPS WITH HOLD TIME.
+
+      let bHold = mode == 3 && ['left','right'].some(h =>
+         [4, 5].some(i => buttonState[h][i] && buttonState[h][i].pressed));
+      tilt = cg.clamp(tilt + (bHold ? TILT_RATE : -TILT_RATE) * dt, 0, TILT_MAX);
+      if (tilt > 0) {
+         let d = cg.subtract([gPosW[0], 0, gPosW[2]], [anchor[0], 0, anchor[2]]);
+         let n = cg.norm([d[0], 0, d[2]]);
+         if (n > 1e-4) tiltDir = cg.normalize([d[0], 0, d[2]]);
+      }
+
       // THE ONE MATRIX THAT MAPS MINIATURE SPACE TO THE WORLD.
       // MODE 1 POSE: T(anchor) - COMPLETELY STATIONARY, HEAD-INDEPENDENT.
       // MODE 2 POSE: BUILT ONLY FROM THE PENGUIN'S POSE - CAMERA FIXED AT
@@ -326,22 +374,45 @@ export const init = async model => {
 
       transition = Math.min(1, transition + dt / TRANSIT);
       let e = cg.ease(transition);
-      let blend = mode == 2 ? e : 1 - e;           // BLEND TOWARD THE CURRENT MODE
+      let blend = mode == 1 ? 1 - e : e;           // BLEND TOWARD THE CURRENT MODE
+
+      // MODE 2 POSE FROM THE PENGUIN'S HEAD MARKER; MODE 3 FROM THE GIANT'S
+      // (SAME CONSTRUCTION, EYE HEIGHT 12x BECAUSE THE GIANT IS 12x IN
+      // MINIATURE SPACE TOO, AND THE CAMERA AT ITS REAL WORLD EYE HEIGHT).
 
       let A = cg.mMultiply(cg.mTranslate([peng.pos[0], PENGUIN_EYE_H, peng.pos[2]]),
                            cg.mRotateY(peng.yaw));
       let G2 = cg.mMultiply(cg.mTranslate([0, PENGUIN_EYE_H * SCALE, 0]),
                cg.mMultiply(cg.mRotateY(peng.yaw),
                cg.mMultiply(cg.mScale(SCALE), cg.mInverse(A))));
-      let d2 = decompose(G2);
 
-      let gPos = cg.mix(anchor, d2.p, blend);
-      let gQ = qSlerp(Q_IDENT, d2.q, blend);
+      let Ag = cg.mMultiply(cg.mTranslate([gPosW[0] - anchor[0], PENGUIN_EYE_H * SCALE,
+                                           gPosW[2] - anchor[2]]),
+                            cg.mRotateY(giant.yaw));
+      let G3 = cg.mMultiply(cg.mTranslate([gPosW[0], PENGUIN_EYE_H * SCALE, gPosW[2]]),
+               cg.mMultiply(cg.mRotateY(giant.yaw),
+               cg.mMultiply(cg.mScale(SCALE), cg.mInverse(Ag))));
+
+      let d = mode == 1 ? { p: anchor.slice(), q: Q_IDENT, s: 1 }
+             : decompose(mode == 2 ? G2 : G3);
+
+      let gPos = cg.mix(anchor, d.p, blend);
+      let gQ = qSlerp(Q_IDENT, d.q, blend);
       let gScale = Math.pow(SCALE, blend);
       gM = cg.mMultiply(cg.mMultiply(cg.mTranslate(gPos),
                     cg.mFromQuaternion({x: gQ[0], y: gQ[1], z: gQ[2], w: gQ[3]})),
                     cg.mScale(gScale));
-      miniRoot.setMatrix(gM);
+
+      // THE TILT ROTATES miniRoot ABOUT THE FELT CENTER (MINIATURE ORIGIN) -
+      // THE CENTER POINT ITSELF NEVER MOVES UP OR DOWN. tiltDir IS WORLD-
+      // SPACE; THE MINIATURE FRAME CAN BE YAWED (MODE 3), SO ROTATE IT IN.
+
+      let mDir = cg.normalize(cg.mTransform(cg.mFromQuaternion(
+                    {x: gQ[0], y: gQ[1], z: gQ[2], w: gQ[3]}), tiltDir));
+      let phi = Math.atan2(mDir[0], mDir[2]);
+      let tiltM = cg.mMultiply(cg.mRotateY(phi),
+                   cg.mMultiply(cg.mRotateX(tilt), cg.mRotateY(-phi)));
+      miniRoot.setMatrix(cg.mMultiply(gM, tiltM));
 
       // GLB PENGUIN RIDES THE SAME TRANSFORM. IN PENGUIN POV THE AVATAR IS
       // COMPLETELY HIDDEN - ONLY THE CAMERA, THE CUE AND THE BALLS REMAIN.
@@ -406,7 +477,8 @@ export const init = async model => {
       // THE AIM RAY AND THE BALLS IT TOUCHES.
 
       let cueY = ballsMod.R;
-      cueRoot.identity().move([peng.pos[0], cueY, peng.pos[2]]).turnY(aimYaw);
+      cueRoot.identity().move([peng.pos[0], cueY, peng.pos[2]]).turnY(aimYaw)
+             .opacity(mode == 3 ? 0 : 1);          // THE GIANT HOLDS NO CUE
       cueSlide.identity().move([0, 0, pull]);
       let dd = 1 - .45 * dark;
       cueButt .identity().move([0, 0,  .035]).scale(.0075, .0075, .105).color(.55*dd, .32*dd, .16*dd);
@@ -421,21 +493,33 @@ export const init = async model => {
          aimRing.identity()
                 .move([contact.px + contact.nx * .0012, ballsMod.R, contact.pz + contact.nz * .0012])
                 .turnY(Math.atan2(contact.nx, contact.nz))
-                .scale(.0062).opacity(mode == 2 ? .95 : .8);
+                .scale(.0062).opacity(mode == 2 ? .95 : mode == 1 ? .8 : 0);
          aimDot.opacity(0);
       }
       else {                                       // NOTHING IN LINE: AIMPOINT AT RAY END
          aimRing.opacity(0);
          aimDot.identity().move([0, 0, -(CUE_TIP + aimL)]).scale(.01)
-               .opacity(mode == 2 ? .9 : .7);
+               .opacity(mode == 2 ? .9 : mode == 1 ? .7 : 0);
       }
 
       // PHYSICS + DRAW
 
+      // TILTED TABLE: BALLS AND THE MINI PENGUIN SLIDE DOWNHILL. THE SLIDE
+      // DIRECTION IS WORLD-SPACE; IN MODES 1 AND 3 THE MINIATURE FRAME HAS
+      // NO ROTATION, SO IT MAPS STRAIGHT INTO MINIATURE COORDINATES.
+
+      let tiltAcc = tilt > 0
+         ? { ax: TILT_G * Math.sin(tilt) * mDir[0], az: TILT_G * Math.sin(tilt) * mDir[2] }
+         : null;
+      if (tiltAcc && !grabbed)
+         peng.pos = clampFelt(cg.add(peng.pos,
+            cg.scale(mDir, PENGUIN_SPEED * .8 * (tilt / TILT_MAX) * dt)));
+
       let before = ballsMod.balls.filter(b => b.active).length;
-      ballsMod.update(dt, { pos: peng.pos, speed: pengSpeed, r: PENGUIN_R });
+      ballsMod.update(dt, { pos: peng.pos, speed: pengSpeed, r: PENGUIN_R }, tiltAcc);
       pocketedCount += before - ballsMod.balls.filter(b => b.active).length;
-      peng.update({ t, dt, moving: pengSpeed > .02, ride: mode == 2 });
+      peng.update({ t, dt, moving: pengSpeed > .02 || tilt > .01, ride: mode == 2 });
+      giant.update({ t, dt, moving: false, ride: mode == 3 });
 
       // DEBUG: NO BOARDS - JUST VOLUME BOX + CONSOLE
 

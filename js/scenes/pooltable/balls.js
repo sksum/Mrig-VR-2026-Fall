@@ -40,7 +40,7 @@ export function buildBalls(model, table) {
          pockets.push([sx * (table.w/2 - .06), sz * (table.d/2 - .06)]);
    pockets.push([0, -(table.d/2 - .01)], [0, table.d/2 - .01]);
 
-   function update(dt, peng) {
+   function update(dt, peng, tiltAcc) {
       dt = Math.min(dt, .1);
       let damp = Math.pow(FRICTION, dt);
 
@@ -57,6 +57,10 @@ export function buildBalls(model, table) {
          }
 
          b.age += dt;
+         if (tiltAcc) {                           // TILTED TABLE: ROLL DOWNHILL
+            b.vel[0] += tiltAcc.ax * dt;
+            b.vel[2] += tiltAcc.az * dt;
+         }
          b.vel = cg.scale(b.vel, damp);
          b.pos = cg.add(b.pos, cg.scale(b.vel, dt));
          b.vel[1] = 0;                          // BALLS LIVE ON THE FELT PLANE ONLY:

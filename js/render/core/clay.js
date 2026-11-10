@@ -2177,7 +2177,7 @@ let fl = 5;                                                          // CAMERA F
       for (let hand in this.controllerWidgets)
          if (window.handtracking)
             this.controllerWidgets[hand].scale(0);
-         else {
+         else if (window.clientID !== undefined) {
             let i = 0;
             for (let b = 0 ; b < 7 ; b++)
                if (clientState.button(clientID, hand, b))

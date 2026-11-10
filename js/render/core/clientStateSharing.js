@@ -8,8 +8,15 @@ let color = [[.48,.36,.27],[1,1,1],[1,.19,0],[1,1,0],[0,.88,0],[0,0,1],[1,0,0]];
                                                                                  //                                 //
 let pinchState = {};                                                             // Previous pinch states.          //
                                                                                  //                                 //
+// ENSURE THE clientID/clients BINDINGS EXIST SO THE BARE READS BELOW (AND IN    //
+// clay.animate) NEVER THROW ReferenceError BEFORE server.synchronize ASSIGNS    //
+// THEM. UNTIL THEN NO CLIENT IS MASTER.                                         //
+window.clientID = window.clientID;                                               //                                //
+window.clients  = window.clients;                                                //                                //
+                                                                                 //                                //
 window.isMasterClient = () => {
-   return clientID == clients[0];
+   return window.clientID !== undefined && window.clients !== undefined &&
+          clientID == clients[0];
 /*
    if (! isHeadset) {                                // STILL DEBUGGING THIS.
       for (let i = 0 ; i < clients.length ; i++) {

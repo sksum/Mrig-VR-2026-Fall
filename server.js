@@ -10,7 +10,7 @@ const util = require("util");
 const WebSocketServer = WebSocket.Server;
 
 var env = "remote";
-var port = 8447;
+var port = 2026;
 
 // process console parameters
 var myArgs = process.argv.slice(2);
@@ -49,6 +49,16 @@ const serverConfig =
 
 // Create a server for the client html page
 const handleRequest = function (request, response) {
+    // Strip any query string (e.g. scene.js?modid=...) before reading the file
+    if (request.url.startsWith("/__log")) {
+        // Remote console pipe from the client (see index.html)
+        console.log("[CLIENT] " + decodeURIComponent(request.url.substring(7)));
+        response.writeHead(200);
+        response.end("");
+        return;
+    }
+    request.url = request.url.split("?")[0];
+    console.log("GET " + request.url);
     // Render the single client html file for any request the HTTP server receives
     // console.log('request received: ' + request.url);
     if (request.url.endsWith(".png")) {
