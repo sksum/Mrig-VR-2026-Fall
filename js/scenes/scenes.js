@@ -20,6 +20,7 @@ export default () => {
             { name: "widgets"    , path: "./widgets.js"    , public: true },
             { name: "miniature"  , path: "./miniature.js"  , public: true },
             { name: "pooltable"  , path: "./pooltable.js"  , public: true },
+            { name: "minime"     , path: "./minime.js"     , public: true },
       ]
    };
 }
